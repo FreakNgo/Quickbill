@@ -363,7 +363,11 @@ function printReceipt(){
     <div class="pr-c">Scan to pay with any UPI app</div>
     <div class="pr-c pr-b">${esc(b.su)}</div>
     <div class="pr-c" style="margin-top:2mm">Thank you!</div>`;
-  $('#pgStyle').textContent=`@page{size:${w}mm auto;margin:0}`;
+  /* "58mm auto" is invalid CSS, so measure the receipt and set a real page height */
+  pa.style.display='block';pa.style.visibility='hidden';pa.style.position='absolute';pa.style.left='-9999px';
+  const hmm=Math.max(40,Math.ceil(pa.offsetHeight*25.4/96)+3);
+  pa.style.display='';pa.style.visibility='';pa.style.position='';pa.style.left='';
+  $('#pgStyle').textContent=`@page{size:${w}mm ${hmm}mm;margin:0}`;
   setTimeout(()=>window.print(),80);
 }
 $('#mP').onclick=printReceipt;
