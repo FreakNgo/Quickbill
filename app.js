@@ -42,7 +42,7 @@ function card(p){
   const q=cart[p.id]||0,[bg,bd]=pal(p.id);
   return `<div class="p-4" style="background:${bg};border:1.5px solid ${q?'var(--brand)':bd};box-shadow:${q?'0 0 0 1px var(--brand)':'none'};border-radius:28px">
     <div class="flex items-start justify-between gap-2">
-      <div data-add="${p.id}" class="cursor-pointer select-none min-w-0 flex-1"><div class="serif text-[19px] font-bold leading-tight break-words">${p.name}</div><div class="mono text-[15px] font-medium mt-1.5" style="color:var(--brand-d)">${money(p.price)}</div></div>
+      <div data-add="${p.id}" class="cursor-pointer select-none min-w-0 flex-1"><div class="serif text-[19px] font-bold leading-tight break-words">${esc(p.name)}</div><div class="mono text-[15px] font-medium mt-1.5" style="color:var(--brand-d)">${money(p.price)}</div></div>
       <button data-tp="${p.id}" aria-label="${p.pin?'Unpin ':'Pin '}${esc(p.name)}" class="shrink-0" style="color:${p.pin?'var(--brand)':'#7C808A'}">${PIN(p.pin)}</button>
     </div>
     <div class="flex items-center justify-between mt-4">
@@ -78,13 +78,13 @@ function updateTotals(){
   $('#barQty').textContent=n+(n===1?' item':' items');$('#barTot').textContent=money(total());
   $('#bar').classList.toggle('hidden',curTab()!=='bill'||!n);
 }
-$('#discIn').oninput=e=>{disc=parseFloat(e.target.value)||0;updateTotals()};
+$('#discIn').oninput=e=>{disc=Math.max(0,parseFloat(e.target.value)||0);updateTotals()};
 $('#clearCart').onclick=()=>{cart={};customs={};disc=0;editId=null;renderBill()};
 
 document.addEventListener('click',e=>{
   const a=e.target.closest('[data-add]'),d=e.target.closest('[data-dec]');
   if(a){const id=a.dataset.add;cart[id]=(cart[id]||0)+1;renderBill();if(navigator.vibrate)navigator.vibrate(8)}
-  else if(d){const id=d.dataset.dec;cart[id]=(cart[id]||0)-1;renderBill()}
+  else if(d){const id=d.dataset.dec;if(cart[id]){cart[id]--;if(!cart[id])delete cart[id];if(!cartCount())editId=null;renderBill()}}
 });
 
 /* ---------- Dialogs (replace blocked confirm/prompt) ---------- */
@@ -121,15 +121,15 @@ $('#gen').onclick=()=>{
   if(!settings.upi.trim()){toast('Add your UPI ID in Settings first');return setTab('set')}
   const r2=x=>Math.round(x*100)/100;
   const items=allItems().filter(p=>cart[p.id]).map(p=>({n:p.name,p:p.price,q:cart[p.id]}));
-  const sub=r2(subtotal()), dsc=r2(Math.min(disc,sub)), tot=r2(sub+dsc);
+  const sub=r2(subtotal()), dsc=r2(Math.min(disc,sub)), tot=r2(sub-dsc);
   if(tot<=0)return toast('Total must be more than ₹0');
   const old=editId?history.find(h=>h.id===editId):null;
-  const b={id:old?old.id:uid(),no:old?old.no:counter+1,ts:Date.now(),items,sub,disc:dsc,total:tot,sn:settings.name,sa:settings.addr,su:settings.upi,pm:'u'};
+  const b={id:old?old.id:uid(),no:old?old.no:counter+1,ts:Date.now(),items,sub,disc:dsc,total:tot,sn:settings.name,sa:settings.addr,su:settings.upi.trim(),pm:old&&old.pm||'u'};
   const rec=pack(b);let saved=false;
   if(rec){
     const prev=history.slice(),pc=counter;
     if(old)history=history.map(h=>h.id===old.id?rec:h);else{history.unshift(rec);counter=b.no}
-    if(sv('pos_history',history)){editId=rec.id;saved=true}
+    if(sv('pos_history',history)&&sv('pos_counter',counter)){editId=rec.id;saved=true}
     else{history=prev;counter=pc}
   }else toast('Too many items to save this bill (10 KB limit)');
   showReceipt(b,'new');
@@ -148,7 +148,7 @@ function showReceipt(b,m){
   $('#rTot').textContent=money(b.total);
   $('#rUpi').textContent='Pay to: '+b.su;
   $$('#pm .chip').forEach(c=>c.classList.toggle('on',c.dataset.pm===(b.pm||'u')));
-  const uri=`upi://pay?pa=${b.su}&pn=${encodeURIComponent(b.sn||'Shop')}&am=${Number(b.sub).toFixed(2)}&cu=INR`;
+  const uri=`upi://pay?pa=${b.su}&pn=${encodeURIComponent(b.sn||'Shop')}&am=${Number(b.total).toFixed(2)}&cu=INR`;
   const q=$('#qr');q.innerHTML='';
   try{new QRCode(q,{text:uri,width:200,height:200,colorDark:'#14212B',colorLight:'#ffffff',correctLevel:QRCode.CorrectLevel.M})}
   catch(e){q.textContent='QR library failed to load. Check your internet connection.'}
@@ -161,7 +161,7 @@ function showReceipt(b,m){
 /* ---------- Thermal print (58 / 80 mm) ---------- */
 function printReceipt(){
   if(!cur)return;
-  const b=cur,w=58,c=$('#qr canvas'),im=$('#qr img');
+  const b=cur,w=settings.paper==='80'?80:58,c=$('#qr canvas'),im=$('#qr img');
   const qsrc=c?c.toDataURL('image/png'):(im?im.src:'');
   const qs=w===80?'46mm':'36mm';
   const pa=$('#printArea');
@@ -202,7 +202,7 @@ $('#modal').addEventListener('click',e=>{if(e.target.id==='modal')$('#mL').click
 function delHist(id){
   history=history.filter(h=>h.id!==id);
   if(editId===id)editId=null;
-  sv('pos_history',history);toast('Bill deleted');
+  sv('pos_history',history);renderHist();toast('Bill deleted');
 }
 function renderHist(){
   renderToday();
@@ -245,7 +245,7 @@ function saveProds(){sv('pos_products',products);renderProds()}
 $('#addProd').onclick=()=>{
   const n=$('#pName').value.trim(),pr=parseFloat($('#pPrice').value);
   if(!n)return toast('Enter a product name');
-  
+  if(!(pr>=0))return toast('Enter a valid price');
   products.push({id:uid(),name:n.slice(0,60),price:Math.round(pr*100)/100,pin:$('#pPin').checked});
   $('#pName').value='';$('#pPrice').value='';saveProds();toast('Product added');$('#pName').focus();
 };
@@ -263,7 +263,7 @@ document.addEventListener('change',e=>{const c=e.target.closest('[data-pin]');if
 
 document.addEventListener('click',e=>{
   const t=e.target.closest('[data-tp]');
-  if(t){const p=products.find(x=>x.id===t.dataset.tp);if(p){p.pin=!p.pin;renderBill();renderProds()}return}
+  if(t){const p=products.find(x=>x.id===t.dataset.tp);if(p){p.pin=!p.pin;sv('pos_products',products);renderBill();renderProds()}return}
   const c=e.target.closest('[data-f]');
   if(c){filt=c.dataset.f;$$('#chips .chip').forEach(x=>x.classList.toggle('on',x===c));renderBill()}
 });
@@ -285,7 +285,7 @@ $('#pm').onclick=e=>{
 };
 function renderToday(){
   const t=new Date().toDateString();let c=0,u=0,n=0;
-  history.forEach(h=>{{n++;if(h.pm==='c')c+=h.total;else u+=h.total}});
+  history.forEach(h=>{if(new Date(h.ts).toDateString()===t){n++;if(h.pm==='c')c+=h.total;else u+=h.total}});
   const el=$('#histToday');el.classList.toggle('hidden',!history.length);
   el.innerHTML=`<div class="p-5" style="background:#E8F0FD;border:1.5px solid #CBDDF8;border-radius:28px"><div class="text-xs font-bold uppercase tracking-wider" style="color:var(--brand)">Today</div>
   <div class="flex items-end justify-between mt-1"><div class="serif text-3xl font-bold">${money(c+u)}</div><div class="text-sm font-medium" style="color:var(--mute)">${n} ${n===1?'bill':'bills'}</div></div>
